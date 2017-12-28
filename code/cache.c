@@ -78,8 +78,25 @@ void set_cache_param(param, value)
 /************************************************************/
 void init_cache()
 {
+    /* initialize the cache, and cache statistics data structures */
+    if(cache_split){
+      c1.size = cache_dsize;
+      c2.size = cache_isize;
+    } else  {
+      c1.size = c2.size = cache_usize;
+    }
 
-  /* initialize the cache, and cache statistics data structures */
+    c1.associativity = c2.associativity = cache_assoc;
+
+    c1.n_sets = c1.size / cache_assoc / cache_block_size;
+    c2.n_sets = c2.size / cache_assoc / cache_block_size;
+
+    c1.LRU_head = (Pcache_line *)malloc(sizeof(Pcache_line)*c1.n_sets);
+    c2.LRU_head = (Pcache_line *)malloc(sizeof(Pcache_line)*c2.n_sets);
+
+    c1.index_mask_offset = c2.index_mask_offset = 2 + LOG2(cache_block_size);
+    c1.index_mask = c1.size*4 - 1;
+    c2.index_mask = c2.size*4 - 1;
 
 }
 /************************************************************/
@@ -88,18 +105,31 @@ void init_cache()
 void perform_access(addr, access_type)
   unsigned addr, access_type;
 {
-
   /* handle an access to the cache */
+  int data_index;
+  int inst_index;
+  int tag = 0;
 
+  // compute the index into the cache for an address
+  switch(access_type){
+    case 0:
+      tag = 0xffffffff & ~(c1.index_mask) >> (c1.index_mask_offset + LOG2(c1.size));
+      data_index = (addr & c1.index_mask) >> c1.index_mask_offset;
+      break;
+    case 1:
+      break;
+    case 2:
+      tag = 0xffffffff & ~(c2.index_mask) >> (c2.index_mask_offset + LOG2(c2.size));
+      inst_index = (addr & c2.index_mask) >> c2.index_mask_offset;
+      break;
+    }
 }
 /************************************************************/
 
 /************************************************************/
 void flush()
 {
-
   /* flush the cache */
-
 }
 /************************************************************/
 
