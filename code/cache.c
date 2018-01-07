@@ -156,19 +156,41 @@ void perform_access(addr, access_type) unsigned addr, access_type;
   int index;
   int tag = 0;
   Pcache_line Pline;
+  Pcache ncache;
+
+  if (cache_split)
+  {
+    switch (access_type)
+    {
+    case TRACE_DATA_LOAD:
+    case TRACE_DATA_STORE:
+      ncache = dcache;
+      break;
+    case TRACE_INST_LOAD:
+      ncache = icache;
+    }
+  }
+  else
+  {
+    ncache = ucache;
+  }
 
   //compute the tag and index
-  index = (addr & ucache->index_mask) >> ucache->index_mask_offset;
-  tag = (addr & ~ucache->index_mask) >> (ucache->index_mask_offset +
-                                         LOG2(ucache->n_sets));
-  Pline = ucache->LRU_head[index];
+  index = (addr & ncache->index_mask) >> ncache->index_mask_offset;
+  tag = (addr & ~ncache->index_mask) >> (ncache->index_mask_offset +
+                                         LOG2(ncache->n_sets));
+  Pline = ncache->LRU_head[index];
   //determaine the access type
   switch (access_type)
   {
   //data access
   case TRACE_DATA_LOAD:
     cache_stat_data.accesses++;
-    //miss
+    //read miss
+    while (!(Pline == NULL || Pline->tag == tag))
+    {
+      Pline = Pline->LRU_next;
+    }
     if (Pline == NULL || Pline->tag != tag)
     {
       cache_stat_data.misses++;
@@ -176,52 +198,81 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       Pline = malloc(sizeof(cache_stat));
       Pline->dirty = FALSE;
       Pline->tag = tag;
-      if (ucache->set_contents[index] == ucache->associativity)
+      if (ncache->set_contents[index] == ncache->associativity)
       {
-        if (ucache->LRU_tail[index]->dirty)
+        if (ncache->LRU_tail[index]->dirty)
         {
           cache_stat_data.copies_back += words_per_block;
         }
-        delete (&ucache->LRU_head[index], &ucache->LRU_tail[index], ucache->LRU_tail[index]);
+        delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
         cache_stat_data.replacements++;
-        ucache->set_contents[index]--;
+        ncache->set_contents[index]--;
       }
-      insert(&ucache->LRU_head[index], &ucache->LRU_tail[index], Pline);
-      ucache->set_contents[index]++;
+      insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+      ncache->set_contents[index]++;
     }
     break;
   case TRACE_DATA_STORE:
     cache_stat_data.accesses++;
+    while (!(Pline == NULL || Pline->tag == tag))
+    {
+      Pline = Pline->LRU_next;
+    }
+    //write miss
     if (Pline == NULL || Pline->tag != tag)
     {
       cache_stat_data.misses++;
+      //if write alloc
       if (cache_writealloc)
       {
         cache_stat_data.demand_fetches += (words_per_block);
-      }
-      Pline = malloc(sizeof(cache_stat));
-      Pline->dirty = TRUE;
-      Pline->tag = tag;
-      if (ucache->set_contents[index] == ucache->associativity)
-      {
-        if (ucache->LRU_tail[index]->dirty)
+        Pline = malloc(sizeof(cache_stat));
+
+        Pline->tag = tag;
+        if (cache_writeback)
         {
-          cache_stat_data.copies_back += words_per_block;
+          Pline->dirty = TRUE;
         }
-        delete (&ucache->LRU_head[index], &ucache->LRU_tail[index], ucache->LRU_tail[index]);
-        cache_stat_data.replacements++;
-        ucache->set_contents[index]--;
+        else
+        {
+          Pline->dirty = FALSE;
+          cache_stat_data.copies_back += 1;
+        }
+        if (ncache->set_contents[index] == ncache->associativity)
+        {
+          if (ncache->LRU_tail[index]->dirty)
+          {
+            cache_stat_data.copies_back += words_per_block;
+          }
+          delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
+          cache_stat_data.replacements++;
+          ncache->set_contents[index]--;
+        }
+        insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+        ncache->set_contents[index]++;
       }
-      insert(&ucache->LRU_head[index], &ucache->LRU_tail[index], Pline);
-      ucache->set_contents[index]++;
+      else
+      {
+        cache_stat_data.copies_back += 1;
+      }
     }
     else
     {
-      Pline->dirty = TRUE;
+      if(cache_writeback){
+        Pline->dirty = TRUE;
+      }
+      else{
+        Pline->dirty = FALSE;
+        cache_stat_data.copies_back += 1;
+      }
     }
     break;
   case TRACE_INST_LOAD:
     cache_stat_inst.accesses++;
+    while (!(Pline == NULL || Pline->tag == tag))
+    {
+      Pline = Pline->LRU_next;
+    }
     if (Pline == NULL || Pline->tag != tag)
     {
       cache_stat_inst.misses++;
@@ -229,18 +280,18 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       Pline = malloc(sizeof(cache_stat));
       Pline->dirty = FALSE;
       Pline->tag = tag;
-      if (ucache->set_contents[index] == ucache->associativity)
+      if (ncache->set_contents[index] == ncache->associativity)
       {
-        if (ucache->LRU_tail[index]->dirty)
+        if (ncache->LRU_tail[index]->dirty)
         {
           cache_stat_inst.copies_back += words_per_block;
         }
-        delete (&ucache->LRU_head[index], &ucache->LRU_tail[index], ucache->LRU_tail[index]);
+        delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
         cache_stat_inst.replacements++;
-        ucache->set_contents[index]--;
+        ncache->set_contents[index]--;
       }
-      insert(&ucache->LRU_head[index], &ucache->LRU_tail[index], Pline);
-      ucache->set_contents[index]++;
+      insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+      ncache->set_contents[index]++;
     }
     break;
   }
@@ -252,17 +303,33 @@ void flush()
 {
   /* flush the cache */
   Pcache_line Pline;
-  for (int i = 0; i < ucache->n_sets; i++)
+  Pcache ncache;
+  Pcache cache_list[2];
+  if (cache_split)
   {
-    Pline = ucache->LRU_head[i];
-    while (Pline != NULL)
+    cache_list[0] = icache;
+    cache_list[1] = dcache;
+  }
+  else
+  {
+    cache_list[0] = ucache;
+    cache_list[1] = NULL;
+  }
+  for (int j = 0; j < 2 && (cache_list[j] != NULL); j++)
+  {
+    ncache = cache_list[j];
+    for (int i = 0; i < ncache->n_sets; i++)
     {
-      if (Pline->dirty == TRUE)
+      Pline = ncache->LRU_head[i];
+      while (Pline != NULL)
       {
-        cache_stat_data.copies_back += words_per_block;
-        Pline->dirty = FALSE;
+        if (Pline->dirty == TRUE)
+        {
+          cache_stat_data.copies_back += words_per_block;
+          Pline->dirty = FALSE;
+        }
+        Pline = Pline->LRU_next;
       }
-      Pline = Pline->LRU_next;
     }
   }
 }
