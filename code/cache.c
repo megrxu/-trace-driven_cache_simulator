@@ -88,11 +88,12 @@ void init_cache()
     ucache->index_mask = ~(0xffffffff << (ucache->index_mask_offset +
                                           LOG2(ucache->n_sets)));
     ucache->LRU_head = (Pcache_line *)malloc(sizeof(Pcache_line) * ucache->n_sets);
-    ucache->LRU_tail = ucache->LRU_head;
+    ucache->LRU_tail = (Pcache_line *)malloc(sizeof(Pcache_line) * ucache->n_sets);
     ucache->set_contents = (int *)malloc(sizeof(int) * ucache->n_sets);
     for (int i = 0; i < ucache->n_sets; i++)
     {
       ucache->LRU_head[i] = NULL;
+      ucache->LRU_tail[i] = NULL;
       ucache->set_contents[i] = 0;
     }
     ucache->contents = 0;
@@ -110,11 +111,12 @@ void init_cache()
     icache->index_mask = ~(0xffffffff << (icache->index_mask_offset +
                                           LOG2(icache->n_sets)));
     icache->LRU_head = (Pcache_line *)malloc(sizeof(Pcache_line) * icache->n_sets);
-    icache->LRU_tail = icache->LRU_head;
+    icache->LRU_tail = (Pcache_line *)malloc(sizeof(Pcache_line) * icache->n_sets);
     icache->set_contents = (int *)malloc(sizeof(int) * icache->n_sets);
     for (int i = 0; i < icache->n_sets; i++)
     {
       icache->LRU_head[i] = NULL;
+      icache->LRU_tail[i] = NULL;
       icache->set_contents[i] = 0;
     }
     icache->contents = 0;
@@ -126,11 +128,12 @@ void init_cache()
     dcache->index_mask = ~(0xffffffff << (dcache->index_mask_offset +
                                           LOG2(dcache->n_sets)));
     dcache->LRU_head = (Pcache_line *)malloc(sizeof(Pcache_line) * dcache->n_sets);
-    dcache->LRU_tail = dcache->LRU_head;
+    dcache->LRU_tail = (Pcache_line *)malloc(sizeof(Pcache_line) * dcache->n_sets);
     dcache->set_contents = (int *)malloc(sizeof(int) * dcache->n_sets);
     for (int i = 0; i < dcache->n_sets; i++)
     {
       dcache->LRU_head[i] = NULL;
+      dcache->LRU_tail[i] = NULL;
       dcache->set_contents[i] = 0;
     }
     dcache->contents = 0;
@@ -180,6 +183,21 @@ void perform_access(addr, access_type) unsigned addr, access_type;
   tag = (addr & ~ncache->index_mask) >> (ncache->index_mask_offset +
                                          LOG2(ncache->n_sets));
   Pline = ncache->LRU_head[index];
+  // while (!(Pline == NULL || Pline->tag == tag))
+  // {
+  //   Pline = Pline->LRU_next;
+  // }
+  for (int i = 0; i < ncache->set_contents[index]; i++)
+  {
+    if (Pline->tag == tag)
+    {
+      break;
+    }
+    else
+    {
+      Pline = Pline->LRU_next;
+    }
+  }
   //determaine the access type
   switch (access_type)
   {
@@ -187,11 +205,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
   case TRACE_DATA_LOAD:
     cache_stat_data.accesses++;
     //read miss
-    while (!(Pline == NULL || Pline->tag == tag))
-    {
-      Pline = Pline->LRU_next;
-    }
-    if (Pline == NULL || Pline->tag != tag)
+    if (Pline == NULL)
     {
       cache_stat_data.misses++;
       cache_stat_data.demand_fetches += (words_per_block);
@@ -204,22 +218,27 @@ void perform_access(addr, access_type) unsigned addr, access_type;
         {
           cache_stat_data.copies_back += words_per_block;
         }
-        delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
-        cache_stat_data.replacements++;
-        ncache->set_contents[index]--;
+        if (ncache->LRU_tail[index])
+        {
+          delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
+          ncache->set_contents[index]--;
+          cache_stat_data.replacements++;
+        }
       }
       insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
       ncache->set_contents[index]++;
     }
+    else
+    {
+      delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+      insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+    }
     break;
+  // data store
   case TRACE_DATA_STORE:
     cache_stat_data.accesses++;
-    while (!(Pline == NULL || Pline->tag == tag))
-    {
-      Pline = Pline->LRU_next;
-    }
     //write miss
-    if (Pline == NULL || Pline->tag != tag)
+    if (Pline == NULL)
     {
       cache_stat_data.misses++;
       //if write alloc
@@ -227,7 +246,6 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       {
         cache_stat_data.demand_fetches += (words_per_block);
         Pline = malloc(sizeof(cache_stat));
-
         Pline->tag = tag;
         if (cache_writeback)
         {
@@ -244,24 +262,38 @@ void perform_access(addr, access_type) unsigned addr, access_type;
           {
             cache_stat_data.copies_back += words_per_block;
           }
-          delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
-          cache_stat_data.replacements++;
-          ncache->set_contents[index]--;
+          if (ncache->LRU_tail[index])
+          {
+            delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
+            cache_stat_data.replacements++;
+            ncache->set_contents[index]--;
+          }
         }
         insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
         ncache->set_contents[index]++;
       }
       else
       {
-        cache_stat_data.copies_back += 1;
+        if (cache_writeback)
+        {
+          Pline->dirty = TRUE;
+        }
+        else
+        {
+          cache_stat_data.copies_back += 1;
+        }
+        delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+        insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
       }
     }
     else
     {
-      if(cache_writeback){
+      if (cache_writeback)
+      {
         Pline->dirty = TRUE;
       }
-      else{
+      else
+      {
         Pline->dirty = FALSE;
         cache_stat_data.copies_back += 1;
       }
@@ -269,11 +301,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
     break;
   case TRACE_INST_LOAD:
     cache_stat_inst.accesses++;
-    while (!(Pline == NULL || Pline->tag == tag))
-    {
-      Pline = Pline->LRU_next;
-    }
-    if (Pline == NULL || Pline->tag != tag)
+    if (Pline == NULL)
     {
       cache_stat_inst.misses++;
       cache_stat_inst.demand_fetches += words_per_block;
@@ -286,12 +314,20 @@ void perform_access(addr, access_type) unsigned addr, access_type;
         {
           cache_stat_inst.copies_back += words_per_block;
         }
-        delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
-        cache_stat_inst.replacements++;
-        ncache->set_contents[index]--;
+        if (ncache->LRU_tail[index])
+        {
+          delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
+          ncache->set_contents[index]--;
+          cache_stat_inst.replacements++;
+        }
       }
       insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
       ncache->set_contents[index]++;
+    }
+    else
+    {
+      delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+      insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
     }
     break;
   }
