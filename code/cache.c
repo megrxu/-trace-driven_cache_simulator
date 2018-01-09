@@ -161,6 +161,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
   Pcache_line Pline;
   Pcache ncache;
 
+  //set the pointer to cache
   if (cache_split)
   {
     switch (access_type)
@@ -190,7 +191,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
   //determaine the access type
   switch (access_type)
   {
-  //data access
+  //data load
   case TRACE_DATA_LOAD:
     cache_stat_data.accesses++;
     //read miss
@@ -202,12 +203,16 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       Pline = malloc(sizeof(cache_stat));
       Pline->dirty = FALSE;
       Pline->tag = tag;
+      //if the set is full
       if (ncache->set_contents[index] == ncache->associativity)
       {
+        //if the set is dirty
         if (ncache->LRU_tail[index]->dirty)
         {
+          //copy back
           cache_stat_data.copies_back += words_per_block;
         }
+        //delete one set, update the replacements
         delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], ncache->LRU_tail[index]);
         ncache->set_contents[index]--;
         cache_stat_data.replacements++;
@@ -217,6 +222,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
     }
     else
     {
+      // reinsert the Pline
       delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
       insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
     }
@@ -231,6 +237,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       //if write alloc
       if (cache_writealloc)
       {
+        //act as a read miss
         cache_stat_data.demand_fetches += (words_per_block);
         Pline = malloc(sizeof(cache_stat));
         Pline->tag = tag;
@@ -258,12 +265,8 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       }
       else
       {
-        // if (!cache_writeback)
-        // {
-          cache_stat_data.copies_back += 1;
-        // }
-        // delete (&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
-        // insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
+        //just write into the ram
+        cache_stat_data.copies_back += 1;
       }
     }
     else
@@ -274,6 +277,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       }
       else
       {
+        //write through
         Pline->dirty = FALSE;
         cache_stat_data.copies_back += 1;
       }
@@ -281,6 +285,7 @@ void perform_access(addr, access_type) unsigned addr, access_type;
       insert(&ncache->LRU_head[index], &ncache->LRU_tail[index], Pline);
     }
     break;
+  // inst load, similar to the data load
   case TRACE_INST_LOAD:
     cache_stat_inst.accesses++;
     if (!Pline)
@@ -321,6 +326,7 @@ void flush()
   Pcache_line Pline;
   Pcache ncache;
   Pcache cache_list[2];
+  //get the flush cache list
   if (cache_split)
   {
     cache_list[0] = icache;
@@ -331,6 +337,7 @@ void flush()
     cache_list[0] = ucache;
     cache_list[1] = NULL;
   }
+  // flush the cache in the list
   for (int j = 0; j < 2 && (cache_list[j] != NULL); j++)
   {
     ncache = cache_list[j];
